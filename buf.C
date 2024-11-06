@@ -65,18 +65,29 @@ BufMgr::~BufMgr() {
 
 const Status BufMgr::allocBuf(int & frame) 
 {
-    
-    int pinnedCount = 0;
-    while(pinnedCount < 2 * numBufs && (bufTable[clockHand].refbit==true || bufTable[clockHand].pinCnt!=0)){
-        if(bufTable[clockHand].pinCnt==0){
-            bufTable[clockHand].refbit = false;
+
+    int iterations = 0;
+    bool found = false;
+
+    while (iterations < 2 * numBufs) {
+        if (bufTable[clockHand].pinCnt == 0) {
+            // Unpinned frame found
+            if (bufTable[clockHand].refbit == false) {
+                // Frame is unpinned and has refbit = false, so it's suitable for replacement
+                found = true;
+                break;
+            } else {
+                // Clear the refbit to give it a "second chance" on the next pass
+                bufTable[clockHand].refbit = false;
+            }
         }
-        else{
-            pinnedCount++;
-        }
+
         advanceClock();
+        iterations++;
     }
-    if(pinnedCount == numBufs){
+
+    // Check if we have gone through the buffer twice without finding a suitable frame
+    if (!found) {
         return BUFFEREXCEEDED;
     }
 
@@ -94,7 +105,8 @@ const Status BufMgr::allocBuf(int & frame)
     return OK;
 }
 
-	
+
+
 const Status BufMgr::readPage(File *file, const int PageNo, Page *&page)
 {
 
@@ -122,17 +134,17 @@ const Status BufMgr::readPage(File *file, const int PageNo, Page *&page)
         if (hashTableInsertStatus != OK) {
             return hashTableInsertStatus;
         }
-
-        BufDesc  currentBuf = bufTable[frameNo];
-        currentBuf.Set(file, PageNo);
+        BufDesc* currentBuf = &bufTable[frameNo];
+        currentBuf->Set(file, PageNo);
+        page = &bufPool[frameNo];
     }
 
     // Case 2: Page in buffer pool, set appropriate refbit, increment the pinCnt, return a pointer to the frame containing the page via the page parameter
     else {
-        BufDesc &currentBuf = bufTable[frameNo];
-        currentBuf.pinCnt++;
-        currentBuf.refbit = true;
-        page = bufPool+frameNo;
+        BufDesc* currentBuf = &bufTable[frameNo];
+        currentBuf->pinCnt++;
+        currentBuf->refbit = true;
+        page = &bufPool[frameNo];
     }
 
     // Returns OK if no errors occurred, UNIXERR if a Unix error occurred, BUFFEREXCEEDED if all buffer frames are pinned, HASHTBLERROR if a hash table error occurred.
